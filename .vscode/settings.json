@@ -7,6 +7,25 @@
 		"before",
 		"after",
 		"it",
-		"pprint"
+		"pprint",
+		"go",
+		"final",
+		"timer",
+		"factory",
+		"vmath",
+		"gui",
+		"msg",
+		"hash",
+		"on_input",
+		"label",
+		"socket"
+	],
+	"Lua.completion.autoRequire": false,
+	"Lua.workspace.ignoreDir": [
+		".vscode",
+		"annotations"
+	],
+	"Lua.workspace.library": [
+		"~/Library/Application Support/Code/User/workspaceStorage/ac07c8aee1c361dc3b09cd3c42fcca08/astronachos.defold"
 	]
 }

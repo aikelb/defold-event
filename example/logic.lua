@@ -2,6 +2,7 @@ local event = require("event.event")
 local events = require("event.events")
 
 local M = {}
+
 M.counter = 0
 M.on_change_data = event.create()
 

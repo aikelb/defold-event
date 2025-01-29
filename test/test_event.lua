@@ -1,5 +1,5 @@
 return function()
-	local event = {} --[[@as event]]
+	local event = {}
 
 	describe("Defold Event", function()
 		before(function()
@@ -19,7 +19,7 @@ return function()
 			end
 
 			local test_event = event.create(f, ctx)
-			assert(#test_event.callbacks == 1)
+			assert(#test_event == 1)
 
 			test_event:trigger("arg")
 		end)
@@ -29,10 +29,10 @@ return function()
 			local f = function() end
 
 			test_event:subscribe(f)
-			assert(#test_event.callbacks == 1)
+			assert(#test_event == 1)
 
 			test_event:unsubscribe(f)
-			assert(#test_event.callbacks == 0)
+			assert(#test_event == 0)
 		end)
 
 		it("Trigger", function()
@@ -71,7 +71,7 @@ return function()
 
 			is_subscribed = test_event:subscribe(f)
 			assert(is_subscribed == false)
-			assert(#test_event.callbacks == 1)
+			assert(#test_event == 1)
 		end)
 
 		it("Event is_subscribed", function()
@@ -149,5 +149,254 @@ return function()
 			local is_unsubscribed = test_event:unsubscribe(f)
 			assert(is_unsubscribed == false)
 		end)
+
+		it("Event can be called with regular function syntax", function()
+			local test_event = event.create()
+			local counter = 0
+			local f = function(amount) counter = counter + amount end
+
+			test_event:subscribe(f)
+			test_event(1)
+			assert(counter == 1)
+
+			test_event(2)
+			assert(counter == 3)
+		end)
+
+		it("Event can be subscribed on each other", function()
+			local test_event1 = event.create()
+			local test_event2 = event.create()
+			local counter = 0
+			local f1 = function() counter = counter + 1 end
+
+			test_event1:subscribe(f1)
+
+			-- So test_event2 will trigger test_event1
+			test_event2:subscribe(test_event1)
+			test_event2:trigger()
+			assert(counter == 1)
+
+			test_event2:trigger()
+			assert(counter == 2)
+
+			-- Unsubscribe test_event1 from test_event2
+			test_event2:unsubscribe(test_event1)
+			test_event2:trigger()
+			assert(counter == 2)
+		end)
+
+		it("Event can be checked if øther event is subscribed", function()
+			local test_event1 = event.create()
+			local test_event2 = event.create()
+			local counter = 0
+			local f1 = function() counter = counter + 1 end
+
+			test_event1:subscribe(f1)
+
+			-- So test_event2 will trigger test_event1
+			test_event2:subscribe(test_event1)
+			assert(test_event2:is_subscribed(test_event1) == true)
+
+			-- Unsubscribe test_event1 from test_event2
+			test_event2:unsubscribe(test_event1)
+			assert(test_event2:is_subscribed(test_event1) == false)
+		end)
+
+		it("Print memory allocations per function", function()
+			local EMPTY_FUNCTION = function() end
+			local logger =  {
+				trace = EMPTY_FUNCTION,
+				debug = EMPTY_FUNCTION,
+				info = EMPTY_FUNCTION,
+				warn = function(_, message, context)
+					pprint(message, context)
+				end,
+				error = EMPTY_FUNCTION,
+			}
+			event.set_logger(logger)
+
+			collectgarbage("stop")
+
+			local current_memory = collectgarbage("count")
+			for _ = 1, 10000 do
+				event.create()
+			end
+
+			local new_memory = collectgarbage("count")
+			local memory_per_event = ((new_memory - current_memory) * 1024) / 10000
+			print("Event instance should be around 64 bytes, but on CI with code debug coverage it will be much more")
+			print("Memory allocations per instance (Bytes): ", memory_per_event)
+
+			local e = event.create()
+			current_memory = collectgarbage("count")
+			e:subscribe(function() end)
+			new_memory = collectgarbage("count")
+			local memory_per_subscribe = ((new_memory - current_memory) * 1024)
+			print("Memory allocations per first subscribe (Bytes): ", memory_per_subscribe)
+
+			local functions_memory = 40 * 1000 / 1024 -- kbytes
+			current_memory = collectgarbage("count")
+			for i_ndex = 1, 1000 do
+				e:subscribe(function() end)
+			end
+			new_memory = collectgarbage("count") - functions_memory
+			local memory_per_subscribe = ((new_memory - current_memory) * 1024) / 1000
+			print("Memory allocations per subscribe (Bytes): ", memory_per_subscribe)
+
+			collectgarbage("restart")
+		end)
+
+		it("Event should unsubscribe all callbacks by passin unsubscribe without context", function()
+			local test_event = event.create()
+			local counter = 0
+			local f1 = function(amount) counter = counter + amount end
+
+			test_event:subscribe(f1, 2)
+			test_event:subscribe(f1, 3)
+			test_event:subscribe(f1, 7)
+
+			test_event:trigger()
+			assert(counter == 12)
+
+			local is_unsubscribed = test_event:unsubscribe(f1, 2)
+			test_event:trigger()
+			assert(counter == 22)
+			assert(is_unsubscribed == true)
+
+			is_unsubscribed = test_event:unsubscribe(f1)
+			test_event:trigger()
+			assert(counter == 22)
+			assert(is_unsubscribed == true)
+
+			is_unsubscribed = test_event:unsubscribe(f1, 7)
+			test_event:trigger()
+			assert(counter == 22)
+			assert(is_unsubscribed == false)
+		end)
+
+		it("Event without context and with context should be able to subscribe", function()
+			local test_event = event.create()
+			local counter = 0
+			local f1 = function(amount) counter = counter + amount end
+
+			test_event:subscribe(f1)
+			test_event:subscribe(f1, 2)
+
+			test_event:trigger(1)
+			assert(counter == 3)
+
+			-- Should unsubscribe both
+			test_event:unsubscribe(f1)
+
+			-- Other order should works too. Check it due the nil context unsubscribe feature
+			assert(test_event:subscribe(f1, 2))
+			assert(test_event:subscribe(f1))
+
+			test_event:trigger(1)
+			assert(counter == 6)
+		end)
+
+		it("Event should allow unsubscribe events with different context and without it", function()
+			local test_event = event.create()
+			local counter = 0
+			local f1 = function(amount) counter = counter + amount end
+
+			test_event:subscribe(f1)
+			test_event:subscribe(f1, 2)
+
+			-- Should unsubscribe only with context
+			assert(test_event:unsubscribe(f1, 2))
+			assert(#test_event == 1)
+
+			assert(test_event:unsubscribe(f1))
+			assert(#test_event == 0)
+
+			test_event:subscribe(f1)
+			test_event:subscribe(f1, 2)
+
+			assert(test_event:unsubscribe(f1))
+			assert(#test_event == 0)
+		end)
+
+		it("Event should return count of subscribers by length property", function()
+			local test_event = event.create()
+			local counter = 0
+			local f1 = function(amount) counter = counter + amount end
+
+			assert(#test_event == 0)
+
+			test_event:subscribe(f1)
+			assert(#test_event == 1)
+
+			test_event:subscribe(f1, 2)
+			assert(#test_event == 2)
+
+			test_event:unsubscribe(f1)
+			assert(#test_event == 0)
+		end)
+
+		--[[
+		it("Print execution time per function", function()
+			local test_time = function(c)
+				local start_time = socket.gettime() * 1000
+				c()
+				local end_time = socket.gettime() * 1000
+				return end_time - start_time
+			end
+
+			local EMPTY_FUNCTION = function() end
+			local logger =  {
+				trace = EMPTY_FUNCTION,
+				debug = EMPTY_FUNCTION,
+				info = EMPTY_FUNCTION,
+				warn = function(_, message, context)
+					pprint(message, context)
+				end,
+				error = EMPTY_FUNCTION,
+			}
+			event.set_logger(logger)
+
+			local times = 100000
+
+			local start = socket.gettime() * 1000
+			for _ = 1, times do
+				event.create()
+			end
+			local finish = socket.gettime() * 1000
+			local create_time_per_instance = (finish - start) / times
+			print("Create time per instance (ms): ", create_time_per_instance)
+
+			start = socket.gettime() * 1000
+			for index = 1, 1000 do
+				event.create():subscribe(function() end)
+			end
+			finish = socket.gettime() * 1000
+			print("Subscribe time per 1000 callbacks on new event (ms): ", (finish - start) / 1000 - create_time_per_instance)
+
+			local e = event.create()
+			start = socket.gettime() * 1000
+			for index = 1, 1000 do
+				e:subscribe(function() end)
+			end
+			finish = socket.gettime() * 1000
+			print("Subscribe time per 1000 callbacks on one event (ms): ", (finish - start) / 1000)
+
+			start = socket.gettime() * 1000
+			for index = 1, times do
+				e:trigger(1, 2, 3)
+			end
+			finish = socket.gettime() * 1000
+			print("Trigger time per instance with 1000 callbacks (ms): ", (finish - start) / times)
+
+			e:clear()
+			e:subscribe(function() end)
+			start = socket.gettime() * 1000
+			for index = 1, times do
+				e:trigger(1, 2, 3)
+			end
+			finish = socket.gettime() * 1000
+			print("Trigger time per instance with 1 callback (ms): ", (finish - start) / times)
+		end)
+		--]]
 	end)
 end
